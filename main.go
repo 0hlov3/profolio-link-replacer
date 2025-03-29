@@ -2,14 +2,13 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"regexp"
 )
 
 // Fallback/default URLs
 var defaultLinks = map[string]string{
-	"": "",
+	"NO_LINK": "#",
 }
 
 func main() {
@@ -22,25 +21,28 @@ func main() {
 	fmt.Println("File path:", filePath)
 
 	// Read file
-	contentBytes, err := ioutil.ReadFile(filePath)
+	contentBytes, err := os.ReadFile(filePath)
 	if err != nil {
 		panic(err)
 	}
 	content := string(contentBytes)
 
-	// Regex: [Label](<URL> "Title")
-	re := regexp.MustCompile(`\[(.*?)\]\(<(.*?)> "(.*?)"\)`)
+	// Match both [label](<url>) and [label](<url> "title")
+	re := regexp.MustCompile(`\[(.*?)\]\(<(.*?)>(?:\s+"(.*?)")?\)`)
 
 	// Replace function
 	newContent := re.ReplaceAllStringFunc(content, func(match string) string {
 		submatches := re.FindStringSubmatch(match)
-		if len(submatches) != 4 {
-			return match // fallback if regex breaks
+		if len(submatches) < 3 {
+			return match
 		}
 
 		label := submatches[1]
 		url := submatches[2]
-		title := submatches[3]
+		title := ""
+		if len(submatches) >= 4 {
+			title = submatches[3]
+		}
 
 		if url == "" {
 			if fallbackURL, ok := defaultLinks[title]; ok {
@@ -48,11 +50,21 @@ func main() {
 			}
 		}
 
-		return fmt.Sprintf(`{{< newtablink "%s" >}}%s{{< /newtablink >}}`, url, label)
+		isBold := false
+		if matched, _ := regexp.MatchString(`^\*\*(.*)\*\*$`, label); matched {
+			isBold = true
+			label = label[2 : len(label)-2] // strip ** for inner content
+		}
+
+		replacement := fmt.Sprintf(`{{< newtablink "%s" >}}%s{{< /newtablink >}}`, url, label)
+		if isBold {
+			replacement = fmt.Sprintf("**%s**", replacement)
+		}
+
+		return replacement
 	})
 
-	// Write back in place
-	err = ioutil.WriteFile(filePath, []byte(newContent), 0644)
+	err = os.WriteFile(filePath, []byte(newContent), 0644)
 	if err != nil {
 		panic(err)
 	}
